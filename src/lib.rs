@@ -1,9 +1,39 @@
-use jni::JavaVM;
-use jni::objects::JValue;
+use jni::{JavaVM, JNIEnv};
+use jni::objects::{JValue, JObject};
 use jni::sys::{jsize, jint};
 use windows::Win32::System::Console::AllocConsole;
 use windows::{Win32::UI::WindowsAndMessaging::MessageBoxA, s};
 use windows::{ Win32::Foundation::*, Win32::System::SystemServices::*, core::*, Win32::System::LibraryLoader::* };
+
+enum JVMError {
+    DllNotFound,
+    JvmNotFound,
+}
+
+impl ToString for JVMError {
+    fn to_string(&self) -> String {
+        match self {
+            JVMError::DllNotFound => "DllNotFound".to_owned(),
+            JVMError::JvmNotFound => "JvmNotFound".to_owned(),
+        }
+    }
+}
+trait UnwrapOrMsgBoxAndExit<T, E: std::fmt::Display> {
+    fn unwrap_or_msgbox_and_exit(self, text: Option<&str>) -> T;
+}
+
+impl<T, E: std::fmt::Display> UnwrapOrMsgBoxAndExit<T, E> for std::result::Result<T, E> {
+    fn unwrap_or_msgbox_and_exit(self, text: Option<&str>) -> T {
+        return self.unwrap_or_else(|err| {
+            if let Some(t) = text {
+                message_box(t);
+            } else {
+                message_box(err.to_string().as_str());
+            }
+            std::process::exit(1);
+        });
+    }
+}
 
 type JNIGetCreatedJavaVMs = fn (vmBuf: *mut *mut JavaVM, bufLen: jsize, nVMs: *mut jsize) -> jint;
 
@@ -15,15 +45,12 @@ fn message_box(text: &str) {
     }
 }
 
-fn attach() {
+fn get_jvm() -> std::result::Result<JavaVM, JVMError> {
     unsafe {
-        AllocConsole(); // Doesn't actaully redirect output (println!) to console because I couldn't get freopen to work.
-
-        let jvm_dll = GetModuleHandleA(s!("jvm.dll")).unwrap_or(HMODULE(0));
-        if jvm_dll == HMODULE(0) {
-            message_box("Failed to get JVM DLL.");
-            return;
-        }
+        let jvm_dll = match GetModuleHandleA(s!("jvm.dll")) {
+            Ok(jvm_dll) => jvm_dll,
+            Err(_) => return Err(JVMError::DllNotFound),
+        };
 
         let jni_get_created_java_vms_ptr = GetProcAddress(jvm_dll, s!("JNI_GetCreatedJavaVMs")).unwrap();
 
@@ -34,34 +61,47 @@ fn attach() {
 
         jni_get_created_java_vms(&mut jvm_ptr, 1, &mut found);
 
-        let jvm = JavaVM::from_raw(jvm_ptr as _)
-            .unwrap_or_else(|_| {
-                message_box("Failed to get JVM.");
+        let jvm = match JavaVM::from_raw(jvm_ptr as _) {
+            Ok(jvm) => jvm,
+            Err(_) => return Err(JVMError::JvmNotFound),
+        };
+
+        return Ok(jvm);
+    }
+}
+
+fn get_minecraft(mut env: JNIEnv) -> jni::errors::Result<JObject> {
+    let minecraft_class = match env.find_class("ave") {
+        Ok(v) => v,
+        Err(e) => return Err(e),
+    };
+
+    let minecraft = match env.call_static_method(minecraft_class, "A", "()Lave;", &[]) {
+        Ok(v) => v.l().unwrap(),
+        Err(e) => return Err(e),
+    };
+
+    return Ok(minecraft);
+}
+
+fn attach() {
+    unsafe {
+        AllocConsole(); // Doesn't actaully redirect output (println!) to console because I couldn't get freopen to work.
+
+        let jvm = get_jvm()
+            .unwrap_or_else(|err| {
+                message_box(err.to_string().as_str());
                 std::process::exit(1);
             });
 
         let mut env = jvm.attach_current_thread()
-            .unwrap_or_else(|_| {
-                message_box("Failed to get environment.");
-                std::process::exit(1);
-            });
+            .unwrap_or_msgbox_and_exit(Some("Failed to get environment."));
 
-        let minecraft_class = env.find_class("ave")
-            .unwrap_or_else(|_| {
-                message_box("Failed to get Minecraft class.");
-                std::process::exit(1);
-            });
-
-        let minecraft = env.call_static_method(minecraft_class, "A", "()Lave;", &[])
-            .unwrap()
-            .l()
-            .unwrap();
-
+        let minecraft = get_minecraft(env.unsafe_clone())
+            .unwrap_or_msgbox_and_exit(None);
+        
         let player = env.get_field(minecraft, "h", "Lbew;")
-            .unwrap_or_else(|_| {
-                message_box("Failed to get player.");
-                std::process::exit(1);
-            })
+            .unwrap_or_msgbox_and_exit(Some("Failed to get player."))
             .l()
             .unwrap();
 
@@ -81,10 +121,10 @@ extern "system" fn DllMain(
     call_reason: u32,
     _: *mut ()
 ) -> bool {
-    match call_reason {
-        DLL_PROCESS_ATTACH => attach(),
+    let d = match call_reason {
+        DLL_PROCESS_ATTACH => { std::thread::spawn(attach); },
         _ => ()
-    }
+    };
 
     return true;
 }
