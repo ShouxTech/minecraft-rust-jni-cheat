@@ -50,7 +50,7 @@ fn message_box(text: &str) {
 }
 
 // Unusued for now.
-fn get_base_address(module_name: Option<PCSTR>) -> isize {
+fn _get_base_address(module_name: Option<PCSTR>) -> isize {
     unsafe {
         let handle = match module_name {
             Some(s) => GetModuleHandleA(s),
@@ -103,7 +103,6 @@ fn attach() {
     unsafe {
         create_console(); // Goes to externed C code because I couldn't get freopen to work in Rust.
 
-        get_base_address(None);
         let jvm = get_jvm()
             .unwrap_or_else(|err| {
                 message_box(err.to_string().as_str());
