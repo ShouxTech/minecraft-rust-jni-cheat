@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <Windows.h>
 
 void create_console() {
