@@ -1,6 +1,7 @@
 use jni::{JavaVM, JNIEnv};
 use jni::objects::{JValue, JObject};
 use jni::sys::{jsize, jint};
+use windows::Win32::System::Console::AllocConsole;
 use windows::{Win32::UI::WindowsAndMessaging::MessageBoxA, s};
 use windows::{ Win32::Foundation::*, Win32::System::SystemServices::*, core::*, Win32::System::LibraryLoader::* };
 
@@ -37,8 +38,9 @@ impl<T, E: std::fmt::Display> UnwrapOrMsgBoxAndExit<T, E> for std::result::Resul
 type JNIGetCreatedJavaVMs = fn (vmBuf: *mut *mut JavaVM, bufLen: jsize, nVMs: *mut jsize) -> jint;
 
 extern "C" {
-    fn create_console();
-    fn _close_console();
+    // These actually return a *mut FILE but using *mut isize for simplicity.
+    fn __acrt_iob_func(index: u32) -> *mut isize;
+    fn freopen(filename: PCSTR, mode: PCSTR, stream: *mut isize) -> *mut isize;
 }
 
 fn message_box(text: &str) {
@@ -101,7 +103,10 @@ fn get_minecraft(mut env: JNIEnv) -> jni::errors::Result<JObject> {
 
 fn attach() {
     unsafe {
-        create_console(); // Goes to externed C code because I couldn't get freopen to work in Rust.
+        AllocConsole();
+        freopen(s!("CONIN$"), s!("r"), __acrt_iob_func(0));
+        freopen(s!("CONOUT$"), s!("w"), __acrt_iob_func(1));
+        freopen(s!("CONOUT$"), s!("w"), __acrt_iob_func(2));
 
         let jvm = get_jvm()
             .unwrap_or_else(|err| {
