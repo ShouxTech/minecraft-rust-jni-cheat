@@ -141,13 +141,12 @@ fn attach() {
 }
 
 #[no_mangle]
-#[allow(unused_variables)]
 extern "system" fn DllMain(
-    dll_module: HMODULE,
+    _dll_module: HMODULE,
     call_reason: u32,
     _: *mut ()
 ) -> bool {
-    let d = match call_reason {
+    match call_reason {
         DLL_PROCESS_ATTACH => { std::thread::spawn(attach); },
         _ => ()
     };
