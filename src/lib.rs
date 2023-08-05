@@ -51,6 +51,15 @@ fn message_box(text: &str) {
     }
 }
 
+fn create_console() {
+    unsafe {
+        AllocConsole();
+        freopen(s!("CONIN$"), s!("r"), __acrt_iob_func(0)); // stdin
+        freopen(s!("CONOUT$"), s!("w"), __acrt_iob_func(1)); // stdout
+        freopen(s!("CONOUT$"), s!("w"), __acrt_iob_func(2)); // stderr
+    }
+}
+
 // Unusued for now.
 fn _get_base_address(module_name: Option<PCSTR>) -> isize {
     unsafe {
@@ -103,10 +112,7 @@ fn get_minecraft(mut env: JNIEnv) -> jni::errors::Result<JObject> {
 
 fn attach() {
     unsafe {
-        AllocConsole();
-        freopen(s!("CONIN$"), s!("r"), __acrt_iob_func(0));
-        freopen(s!("CONOUT$"), s!("w"), __acrt_iob_func(1));
-        freopen(s!("CONOUT$"), s!("w"), __acrt_iob_func(2));
+        create_console();
 
         let jvm = get_jvm()
             .unwrap_or_else(|err| {
